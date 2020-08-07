@@ -43,9 +43,12 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <time.h>
 
-#ifndef PS2_EE_PLATFORM
+#if !defined(PS2_IOP_PLATFORM)
+#include <time.h>
+#endif
+
+#if !defined(PS2_EE_PLATFORM) && !defined(PS2_IOP_PLATFORM)
 #include <sys/socket.h>
 #endif
 
@@ -408,6 +411,7 @@ void smb2_set_security_mode(struct smb2_context *smb2, uint16_t security_mode)
         smb2->security_mode = security_mode;
 }
 
+#if !defined(PS2_IOP_PLATFORM)
 static void smb2_set_password_from_file(struct smb2_context *smb2)
 {
         char *name = NULL;
@@ -483,6 +487,12 @@ static void smb2_set_password_from_file(struct smb2_context *smb2)
         }
         fclose(fh);
 }
+#else /* !PS2_IOP_PLATFORM */
+static void smb2_set_password_from_file(struct smb2_context *smb2)
+{
+        return;
+}
+#endif /* !PS2_IOP_PLATFORM */
 
 void smb2_set_user(struct smb2_context *smb2, const char *user)
 {
