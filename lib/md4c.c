@@ -24,8 +24,16 @@
    documentation and/or software.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
+#ifdef HAVE_STDINT_H
 #include <stdint.h>
+#endif
+
+#include "compat.h"
+
 #include "md4.h"
 #include "libsmb2-config.h"
 
