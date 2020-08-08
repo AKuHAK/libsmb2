@@ -36,3 +36,15 @@ jobs:
     - name: Build (MSVC)
       run: |
         cmake --build .
+      
+  build-ps2:
+    name: PS2 build
+
+    runs-on: ubuntu-latest
+    container: ps2dev/ps2dev:latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: Compile
+      run: |
+        cd lib
+        make -f Makefile.PS2_EE
