@@ -43,6 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     container: ps2dev/ps2dev:latest
     steps:
+    - name: Install dependencies
+      run: |
+        apk add build-base git zip gawk
     - uses: actions/checkout@v1
     - name: Compile
       run: |
