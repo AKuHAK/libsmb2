@@ -83,7 +83,7 @@
 #include "krb5-wrapper.h"
 #endif
 
-#ifdef ESP_PLATFORM
+#if defined(ESP_PLATFORM)
 #define DEFAULT_OUTPUT_BUFFER_LENGTH 512
 #else
 #define DEFAULT_OUTPUT_BUFFER_LENGTH 0xffff
@@ -155,14 +155,16 @@ struct smb2fh {
 
         smb2_file_id file_id;
         int64_t offset;
+        int64_t end_of_file;
 };
 
 static void
 smb2_close_context(struct smb2_context *smb2)
 {
-        if (smb2 == NULL){
+        if (smb2 == NULL) {
                 return;
         }
+
         if (smb2->fd != -1) {
                 if (smb2->change_fd) {
                         smb2->change_fd(smb2, smb2->fd, SMB2_DEL_FD);
@@ -170,7 +172,7 @@ smb2_close_context(struct smb2_context *smb2)
                 close(smb2->fd);
                 smb2->fd = -1;
         }
-        smb2->is_connected = 0;
+
         smb2->message_id = 0;
         smb2->session_id = 0;
         smb2->tree_id = 0;
@@ -526,7 +528,7 @@ tree_connect_cb(struct smb2_context *smb2, int status,
 
         if (status != SMB2_STATUS_SUCCESS) {
                 smb2_close_context(smb2);
-                smb2_set_error(smb2, "Session setup failed with (0x%08x) %s. %s",
+                smb2_set_error(smb2, "Tree Connect failed with (0x%08x) %s. %s",
                                status, nterror_to_str(status),
                                smb2_get_error(smb2));
                 c_data->cb(smb2, -nterror_to_errno(status), NULL, c_data->cb_data);
@@ -602,7 +604,8 @@ session_setup_cb(struct smb2_context *smb2, int status,
         struct smb2_pdu *pdu;
         int ret;
 
-        if (status == SMB2_STATUS_MORE_PROCESSING_REQUIRED) {
+        if (status == SMB2_STATUS_MORE_PROCESSING_REQUIRED &&
+            rep->security_buffer) {
                 smb3_update_preauth_hash(smb2, smb2->in.niov - 1, &smb2->in.iov[1]);
                 if ((ret = send_session_setup_request(
                                 smb2, c_data, rep->security_buffer,
@@ -622,6 +625,11 @@ session_setup_cb(struct smb2_context *smb2, int status,
                            c_data->cb_data);
                 free_c_data(smb2, c_data);
                 return;
+        }
+
+        if (rep->session_flags & SMB2_SESSION_FLAG_IS_ENCRYPT_DATA) {
+                smb2->seal = 1;
+                smb2->sign = 0;
         }
 
 #ifdef HAVE_LIBKRB5
@@ -664,12 +672,12 @@ session_setup_cb(struct smb2_context *smb2, int status,
                 if (smb2->session_key == NULL || memcmp(smb2->session_key, zero_key, SMB2_KEY_SIZE) == 0) {
                         have_valid_session_key = 0;
                 }
-                if (have_valid_session_key == 0) {
+                if (smb2->sign && have_valid_session_key == 0) {
                         smb2_close_context(smb2);
                         smb2_set_error(smb2, "Signing required by server. Session "
                                        "Key is not available %s",
                                        smb2_get_error(smb2));
-                        c_data->cb(smb2, -1, NULL, c_data->cb_data);
+                        c_data->cb(smb2, -EACCES, NULL, c_data->cb_data);
                         free_c_data(smb2, c_data);
                         return;
                 }
@@ -926,11 +934,11 @@ connect_cb(struct smb2_context *smb2, int status,
 
         memset(&req, 0, sizeof(struct smb2_negotiate_request));
         req.capabilities = SMB2_GLOBAL_CAP_LARGE_MTU;
-        if (smb2->seal && (smb2->version == SMB2_VERSION_ANY  ||
-                           smb2->version == SMB2_VERSION_ANY3 ||
-                           smb2->version == SMB2_VERSION_0300 ||
-                           smb2->version == SMB2_VERSION_0302 ||
-                           smb2->version == SMB2_VERSION_0311)) {
+        if (smb2->version == SMB2_VERSION_ANY  ||
+            smb2->version == SMB2_VERSION_ANY3 ||
+            smb2->version == SMB2_VERSION_0300 ||
+            smb2->version == SMB2_VERSION_0302 ||
+            smb2->version == SMB2_VERSION_0311) {
                 req.capabilities |= SMB2_GLOBAL_CAP_ENCRYPTION;
         }
         req.security_mode = smb2->security_mode;
@@ -1096,6 +1104,7 @@ open_cb(struct smb2_context *smb2, int status,
         }
 
         memcpy(fh->file_id, rep->file_id, SMB2_FD_SIZE);
+        fh->end_of_file = rep->end_of_file;
         fh->cb(smb2, 0, fh, fh->cb_data);
 }
 
@@ -1542,8 +1551,17 @@ smb2_lseek(struct smb2_context *smb2, struct smb2fh *fh,
                 }
                 return fh->offset;
         case SEEK_END:
-                smb2_set_error(smb2, "SEEK_END not implemented");
-                return -EINVAL;
+                fh->offset = fh->end_of_file;
+                if (fh->offset + offset < 0) {
+                        smb2_set_error(smb2, "Lseek() offset would become"
+                                        "negative");
+                        return -EINVAL;
+                }
+                fh->offset += offset;
+                if (current_offset) {
+                        *current_offset = fh->offset;
+                }
+                return fh->offset;
         default:
                 smb2_set_error(smb2, "Invalid whence(%d) for lseek",
                                     whence);
@@ -2416,7 +2434,6 @@ smb2_readlink_async(struct smb2_context *smb2, const char *path,
         next_pdu = smb2_cmd_ioctl_async(smb2, &io_req, readlink_cb_2,
                                         readlink_data);
         if (next_pdu == NULL) {
-                readlink_data->cb(smb2, -ENOMEM, NULL, readlink_data->cb_data);
                 free(readlink_data);
                 smb2_free_pdu(smb2, pdu);
                 return -EINVAL;
@@ -2431,7 +2448,6 @@ smb2_readlink_async(struct smb2_context *smb2, const char *path,
         next_pdu = smb2_cmd_close_async(smb2, &cl_req, readlink_cb_3,
                                         readlink_data);
         if (next_pdu == NULL) {
-                readlink_data->cb(smb2, -ENOMEM, NULL, readlink_data->cb_data);
                 free(readlink_data);
                 smb2_free_pdu(smb2, pdu);
                 return -EINVAL;
@@ -2487,6 +2503,11 @@ smb2_disconnect_share_async(struct smb2_context *smb2,
         struct smb2_pdu *pdu;
 
         if (smb2 == NULL) {
+                return -EINVAL;
+        }
+
+        if (smb2->fd == -1) {
+                smb2_set_error(smb2, "connection is alreeady disconnected or was never connected");
                 return -EINVAL;
         }
 

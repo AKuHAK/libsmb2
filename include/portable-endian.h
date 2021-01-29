@@ -15,16 +15,19 @@
 
 #if defined(ESP_PLATFORM)
 
-#       define _LITTLE_ENDIAN LITTLE_ENDIAN
-#       define __bswap16     __bswap_16
-#       define __bswap32     __bswap_32
-#       define __bswap64     __bswap_64
+// These 4 #defines may be needed with older esp-idf environments
+//#       define _LITTLE_ENDIAN LITTLE_ENDIAN
+//#       define __bswap16     __bswap_16
+//#       define __bswap32     __bswap_32
+//#       define __bswap64     __bswap_64
 
 #	include <endian.h>
 
 #elif defined(PS2_EE_PLATFORM)
 
+#       ifndef _LITTLE_ENDIAN
 #       define _LITTLE_ENDIAN LITTLE_ENDIAN
+#       endif
 #	include <machine/endian.h>
 #	include <tcpip.h>
 
@@ -86,6 +89,23 @@
 
 #	define be64toh(x) betoh64(x)
 #	define le64toh(x) letoh64(x)
+
+#elif defined(PS3_PPU_PLATFORM)
+
+#   define htobe16(x) (x)
+#   define htole16(x) __builtin_bswap16(x)
+#   define be16toh(x) (x)
+#   define le16toh(x) __builtin_bswap16(x)
+
+#   define htobe32(x) (x)
+#   define htole32(x) __builtin_bswap32(x)
+#   define be32toh(x) (x)
+#   define le32toh(x) __builtin_bswap32(x)
+
+#   define htobe64(x) (x)
+#   define htole64(x) __builtin_bswap64(x)
+#   define be64toh(x) (x)
+#   define le64toh(x) __builtin_bswap64(x)
 
 #elif defined(__WINDOWS__)
 

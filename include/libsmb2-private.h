@@ -23,7 +23,7 @@
 #include "config.h"
 #endif
 
-#if PS2_EE_PLATFORM
+#if defined(PS2_EE_PLATFORM) || defined(PS3_PPU_PLATFORM) || defined(ESP_PLATFORM) || defined(__APPLE__)
 /* We need this for time_t */
 #include <time.h>
 #endif
@@ -123,7 +123,12 @@ enum smb2_sec {
 struct smb2_context {
 
         t_socket fd;
-        int is_connected;
+
+        t_socket *connecting_fds;
+        size_t connecting_fds_count;
+        struct addrinfo *addrinfos;
+        const struct addrinfo *next_addrinfo;
+
         int timeout;
 
         enum smb2_sec sec;
@@ -285,6 +290,8 @@ uint64_t timeval_to_win(struct smb2_timeval *tv);
 
 void smb2_set_error(struct smb2_context *smb2, const char *error_string,
                     ...);
+
+void smb2_close_connecting_fds(struct smb2_context *smb2);
 
 void *smb2_alloc_init(struct smb2_context *smb2, size_t size);
 void *smb2_alloc_data(struct smb2_context *smb2, void *memctx, size_t size);

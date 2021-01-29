@@ -55,7 +55,7 @@
 #include "libsmb2.h"
 #include "libsmb2-private.h"
 
-#define MAX_URL_SIZE 256
+#define MAX_URL_SIZE 1024
 
 #include "compat.h"
 
@@ -71,6 +71,7 @@
 #include <errno.h>
 #include <esp_system.h>
 #define random esp_random
+#define srandom(seed)
 #define getlogin_r(a,b) ENXIO
 #endif
 
@@ -273,6 +274,10 @@ struct smb2_context *smb2_init_context(void)
         ret = getlogin_r(buf, sizeof(buf));
         smb2_set_user(smb2, ret == 0 ? buf : "Guest");
         smb2->fd = -1;
+        smb2->connecting_fds = NULL;
+        smb2->connecting_fds_count = 0;
+        smb2->addrinfos = NULL;
+        smb2->next_addrinfo = NULL;
         smb2->sec = SMB2_SEC_UNDEFINED;
         smb2->version = SMB2_VERSION_ANY;
         smb2->ndr = 1;
@@ -303,6 +308,9 @@ void smb2_destroy_context(struct smb2_context *smb2)
                 }
                 close(smb2->fd);
                 smb2->fd = -1;
+        }
+        else {
+                smb2_close_connecting_fds(smb2);
         }
 
         while (smb2->outqueue) {

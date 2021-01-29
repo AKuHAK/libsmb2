@@ -1,9 +1,9 @@
 EE_CFLAGS = -DPS2_EE_PLATFORM -DHAVE_STDINT_H -DHAVE_STRING_H \
 	  -DHAVE_STDLIB_H -DHAVE_SYS_TYPES_H -DHAVE_UNISTD_H \
-	  -D_U_=/**/
+	  -D_U_=/**/ -I../include -I../include/smb2
 
 EE_LIB = libsmb2.a
-EE_INCS = -I../include -I../include/smb2
+EE_INCS = 
 EE_OBJS = aes128ccm.o \
 	aes.o \
 	alloc.o \
@@ -55,8 +55,19 @@ EE_OBJS = aes128ccm.o \
 
 all: $(EE_LIB) $(EE_OBJS)
 
+install: all
+ifeq ($(PS2SDK),)
+	@echo "$PS2SDK is not set. Can not install libsmb2."
+	@exit 1
+endif
+	@echo Copying...
+	@[ -d $(PS2SDK)/ee/include/smb2 ] || mkdir -p $(PS2SDK)/ee/include/smb2
+	@cp -frv ../include/smb2/*.h $(PS2SDK)/ee/include/smb2
+	@cp -frv *.a $(PS2SDK)/ee/lib
+	@echo Done!
+
 clean:
-	rm -r $(EE_LIB) $(EE_OBJS)
+	rm -rf *.a $(EE_OBJS)
 
 reset:
 	ps2client reset

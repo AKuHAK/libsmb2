@@ -25,24 +25,26 @@
 #include <unistd.h>
 #include <lwip/sockets.h>
 #include <sys/uio.h>
-#include <assert.h>
 
 #endif
 
-#if defined(ESP_PLATFORM) || defined(PS2_EE_PLATFORM)
+#if defined(ESP_PLATFORM) || defined(PS2_EE_PLATFORM) || defined(PS3_PPU_PLATFORM)
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
         int i, count, left, total = 0;
+        char *ptr;
 
         for (i = 0; i < iovcnt; i++) {
                 left = iov[i].iov_len;
+                ptr = iov[i].iov_base;
                 while (left > 0) {
-                        count = write(fd, iov[i].iov_base, left);
+                        count = write(fd, ptr, left);
                         if (count == -1) {
                                 return -1;
                         }
                         total += count;
                         left -= count;
+                        ptr += count;
                 }
         }
         return total;
@@ -52,11 +54,13 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 {
         int i, left, count;
         ssize_t total = 0;
+        char *ptr;
 
         for (i = 0; i < iovcnt; i++) {
                 left = iov[i].iov_len;
+                ptr = iov[i].iov_base;
                 while (left > 0) {
-                        count = read(fd, iov[i].iov_base, left);
+                        count = read(fd, ptr, left);
                         if (count == -1) {
                                 return -1;
                         }
@@ -65,6 +69,7 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
                         }
                         total += count;
                         left -= count;
+                        ptr += count;
                 }
         }
         return total;
@@ -72,7 +77,9 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 #endif
 
 #ifdef PS2_EE_PLATFORM
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int poll(struct pollfd *fds, unsigned int nfds, int timo)
 {
@@ -132,13 +139,28 @@ int getaddrinfo(const char *node, const char*service,
                 struct addrinfo **res)
 {
         struct sockaddr_in *sin;
+        struct hostent *host;
+        int i, ip[4];
 
         sin = malloc(sizeof(struct sockaddr_in));
         sin->sin_len = sizeof(struct sockaddr_in);
         sin->sin_family=AF_INET;
 
         /* Some error checking would be nice */
-        sin->sin_addr.s_addr = inet_addr(node);
+        if (sscanf(node, "%d.%d.%d.%d", ip, ip+1, ip+2, ip+3) == 4) {
+                for (i = 0; i < 4; i++) {
+                        ((char *)&sin->sin_addr.s_addr)[i] = ip[i];
+                }
+        } else {
+                host = gethostbyname(node);
+                if (host == NULL) {
+                        return -1;
+                }
+                if (host->h_addrtype != AF_INET) {
+                        return -2;
+                }
+                memcpy(&sin->sin_addr.s_addr, host->h_addr, 4);
+        }
 
         sin->sin_port=0;
         if (service) {
@@ -171,3 +193,41 @@ long long int be64toh(long long int x)
 }
 
 #endif /* PS2_EE_PLATFORM */
+
+#ifdef PS3_PPU_PLATFORM
+#include <stdlib.h>
+
+int smb2_getaddrinfo(const char *node, const char*service,
+                const struct addrinfo *hints,
+                struct addrinfo **res)
+{
+        struct sockaddr_in *sin;
+
+        sin = malloc(sizeof(struct sockaddr_in));
+        sin->sin_len = sizeof(struct sockaddr_in);
+        sin->sin_family=AF_INET;
+
+        /* Some error checking would be nice */
+        sin->sin_addr.s_addr = inet_addr(node);
+
+        sin->sin_port=0;
+        if (service) {
+                sin->sin_port=htons(atoi(service));
+        } 
+
+        *res = malloc(sizeof(struct addrinfo));
+
+        (*res)->ai_family = AF_INET;
+        (*res)->ai_addrlen = sizeof(struct sockaddr_in);
+        (*res)->ai_addr = (struct sockaddr *)sin;
+
+        return 0;
+}
+
+void smb2_freeaddrinfo(struct addrinfo *res)
+{
+        free(res->ai_addr);
+        free(res);
+}
+
+#endif /* PS3_PPU_PLATFORM */
